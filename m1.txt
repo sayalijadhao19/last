@@ -1,0 +1,110 @@
+# Importing necessary libraries for data handling, fuzzy logic, and plotting
+import numpy as np
+import pandas as pd
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import mean_squared_error
+import skfuzzy as fuzz
+from skfuzzy import control as ctrl
+import matplotlib.pyplot as plt
+
+# Step 1: Loading the dataset
+data = pd.read_csv("weatherHistory.csv")  # Load the weather data from a CSV file
+
+# Step 2: Preprocessing the data
+data = data.dropna()  # Drop rows with missing values to ensure the dataset is clean
+# Select relevant features (predictor variables) and the target variable (Temperature)
+features = data[['Humidity', 'Wind Speed (km/h)', 'Visibility (km)', 'Apparent Temperature (C)', 'Wind Bearing (degrees)']]
+target = data['Temperature (C)']  # Target variable is the temperature
+
+# Step 3: Splitting the data into training and testing sets
+X_train, X_test, y_train, y_test = train_test_split(features, target, test_size=0.2, random_state=42)
+# 80% of the data is used for training, and 20% for testing
+
+# Step 4: Defining Fuzzy Variables (Antecedents and Consequents)
+# Defining the range of values and names for each fuzzy input variable
+humidity = ctrl.Antecedent(np.arange(0, 101, 1), 'humidity')
+wind_speed = ctrl.Antecedent(np.arange(0, 50, 1), 'wind_speed')
+visibility = ctrl.Antecedent(np.arange(0, 20, 1), 'visibility')
+apparent_temp = ctrl.Antecedent(np.arange(-10, 40, 1), 'apparent_temp')
+wind_bearing = ctrl.Antecedent(np.arange(0, 360, 1), 'wind_bearing')
+temperature = ctrl.Consequent(np.arange(-10, 40, 1), 'temperature')  # Output fuzzy variable (temperature)
+
+# Step 5: Defining Membership Functions for each fuzzy variable
+# For each fuzzy variable, we define the categories and shape of the membership functions
+
+# Membership functions for humidity (low, medium, high)
+humidity['low'] = fuzz.trimf(humidity.universe, [0, 0, 50])
+humidity['medium'] = fuzz.trimf(humidity.universe, [30, 50, 70])
+humidity['high'] = fuzz.trimf(humidity.universe, [50, 100, 100])
+
+# Membership functions for wind speed (low, medium, high)
+wind_speed['low'] = fuzz.trimf(wind_speed.universe, [0, 0, 15])
+wind_speed['medium'] = fuzz.trimf(wind_speed.universe, [10, 25, 35])
+wind_speed['high'] = fuzz.trimf(wind_speed.universe, [25, 50, 50])
+
+# Membership functions for visibility (low, medium, high)
+visibility['low'] = fuzz.trimf(visibility.universe, [0, 0, 8])
+visibility['medium'] = fuzz.trimf(visibility.universe, [5, 10, 15])
+visibility['high'] = fuzz.trimf(visibility.universe, [10, 20, 20])
+
+# Membership functions for apparent temperature (cold, mild, hot)
+apparent_temp['cold'] = fuzz.trimf(apparent_temp.universe, [-10, -10, 10])
+apparent_temp['mild'] = fuzz.trimf(apparent_temp.universe, [5, 15, 25])
+apparent_temp['hot'] = fuzz.trimf(apparent_temp.universe, [20, 40, 40])
+
+# Membership functions for wind bearing (north, east, west)
+wind_bearing['north'] = fuzz.trimf(wind_bearing.universe, [0, 0, 90])
+wind_bearing['east'] = fuzz.trimf(wind_bearing.universe, [90, 180, 270])
+wind_bearing['west'] = fuzz.trimf(wind_bearing.universe, [270, 360, 360])
+
+# Membership functions for temperature (cold, mild, hot)
+temperature['cold'] = fuzz.trimf(temperature.universe, [-10, -10, 10])
+temperature['mild'] = fuzz.trimf(temperature.universe, [5, 15, 25])
+temperature['hot'] = fuzz.trimf(temperature.universe, [20, 40, 40])
+
+# Step 6: Defining Fuzzy Rules
+# Here, we create the fuzzy rules based on combinations of inputs and expected output (temperature)
+rule1 = ctrl.Rule(humidity['high'] & wind_speed['low'] & visibility['high'] & apparent_temp['hot'], temperature['hot'])
+rule2 = ctrl.Rule(humidity['medium'] & wind_speed['medium'] & apparent_temp['mild'], temperature['mild'])
+rule3 = ctrl.Rule(humidity['low'] | visibility['low'] | apparent_temp['cold'], temperature['cold'])
+rule4 = ctrl.Rule(humidity['low'] & wind_speed['high'] & visibility['high'] & apparent_temp['mild'], temperature['mild'])
+rule5 = ctrl.Rule(humidity['high'] & wind_speed['high'] & visibility['low'] & apparent_temp['cold'], temperature['cold'])
+rule6 = ctrl.Rule(humidity['medium'] & wind_speed['low'] & visibility['medium'] & apparent_temp['hot'], temperature['hot'])
+rule7 = ctrl.Rule(wind_bearing['north'] & visibility['low'], temperature['cold'])
+rule8 = ctrl.Rule(wind_bearing['east'] & visibility['high'], temperature['mild'])
+
+# Step 7: Creating a Control System and Simulation
+# Combining all the fuzzy rules into a control system
+temperature_ctrl = ctrl.ControlSystem([rule1, rule2, rule3, rule4, rule5, rule6, rule7, rule8])
+temperature_simulation = ctrl.ControlSystemSimulation(temperature_ctrl)
+
+# Step 8: Applying the Improved Model for Prediction
+# Using the fuzzy logic control system to predict the temperature for the test dataset
+y_pred_updated = []  # To store the predicted temperatures
+for i in range(X_test.shape[0]):  # Loop over each test sample
+    # Set the input values for the fuzzy control system
+    temperature_simulation.input['humidity'] = X_test.iloc[i]['Humidity']
+    temperature_simulation.input['wind_speed'] = X_test.iloc[i]['Wind Speed (km/h)']
+    temperature_simulation.input['visibility'] = X_test.iloc[i]['Visibility (km)']
+    temperature_simulation.input['apparent_temp'] = X_test.iloc[i]['Apparent Temperature (C)']
+    temperature_simulation.input['wind_bearing'] = X_test.iloc[i]['Wind Bearing (degrees)']
+
+    # Compute the fuzzy output (temperature prediction)
+    temperature_simulation.compute()
+    y_pred_updated.append(temperature_simulation.output['temperature'])
+
+# Step 9: Evaluation of the Model's Performance
+# Calculate the Mean Squared Error (MSE) between the predicted and actual temperatures
+mse_updated = mean_squared_error(y_test, y_pred_updated)
+print("Updated Mean Squared Error:", mse_updated)  # Print the error
+
+# Step 10: Plotting the Results
+# Visualizing the actual vs predicted temperatures for the test data
+plt.figure(figsize=(10, 5))
+plt.plot(y_test.values, label='Actual Temperature', color='blue')  # Actual values
+plt.plot(y_pred_updated, label='Updated Predicted Temperature', color='green')  # Predicted values
+plt.xlabel('Sample')  # Label for x-axis
+plt.ylabel('Temperature (C)')  # Label for y-axis
+plt.title('Actual vs Updated Predicted Temperature')  # Title of the plot
+plt.legend()  # Display legend
+plt.show()  # Show the plot

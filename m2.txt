@@ -1,0 +1,108 @@
+import numpy as np
+from sklearn.datasets import load_iris
+from sklearn.model_selection import train_test_split
+from sklearn.svm import SVC
+from sklearn.metrics import accuracy_score
+import skfuzzy as fuzz
+import skfuzzy.control as ctrl
+
+# Load dataset
+data = load_iris()
+X = data.data
+y = data.target
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+# Define Fuzzy Logic System for Mutation Rate Control
+mutation_input = ctrl.Antecedent(np.arange(0, 1.1, 0.1), 'fitness')
+mutation_output = ctrl.Consequent(np.arange(0, 1.1, 0.1), 'mutation_rate')
+
+# Membership functions for fitness
+mutation_input['low'] = fuzz.trapmf(mutation_input.universe, [0, 0, 0.3, 0.5])
+mutation_input['medium'] = fuzz.trimf(mutation_input.universe, [0.3, 0.5, 0.7])
+mutation_input['high'] = fuzz.trapmf(mutation_input.universe, [0.5, 0.7, 1, 1])
+
+# Membership functions for mutation rate
+mutation_output['low'] = fuzz.trapmf(mutation_output.universe, [0, 0, 0.2, 0.4])
+mutation_output['medium'] = fuzz.trimf(mutation_output.universe, [0.2, 0.5, 0.8])
+mutation_output['high'] = fuzz.trapmf(mutation_output.universe, [0.6, 0.8, 1, 1])
+
+# Fuzzy rules
+rule1 = ctrl.Rule(mutation_input['low'], mutation_output['high'])
+rule2 = ctrl.Rule(mutation_input['medium'], mutation_output['medium'])
+rule3 = ctrl.Rule(mutation_input['high'], mutation_output['low'])
+
+mutation_ctrl = ctrl.ControlSystem([rule1, rule2, rule3])
+mutation_sim = ctrl.ControlSystemSimulation(mutation_ctrl)
+
+# Genetic Algorithm Parameters
+population_size = 20
+generations = 30
+
+# Initialize population (list of hyperparameter values)
+def initialize_population():
+    return np.random.uniform(0.1, 10, size=(population_size, 2))  # Columns: [C, gamma]
+
+# Build SVM model
+def build_svm(C, gamma):
+    model = SVC(C=C, gamma=gamma, kernel='rbf', random_state=42)
+    model.fit(X_train, y_train)
+    return model
+
+# Fitness function
+def fitness_function(individual):
+    C, gamma = individual
+    model = build_svm(C, gamma)
+    predictions = model.predict(X_test)
+    return accuracy_score(y_test, predictions)
+
+# Selection
+def selection(population, fitness_scores):
+    sorted_indices = np.argsort(fitness_scores)[::-1]  # Sort by descending fitness
+    return population[sorted_indices[:population_size // 2]]
+
+# Crossover
+def crossover(parent1, parent2):
+    child = np.array([(parent1[0] + parent2[0]) / 2, (parent1[1] + parent2[1]) / 2])
+    return child
+
+# Mutation
+def mutation(individual, mutation_rate):
+    if np.random.rand() < mutation_rate:
+        individual[0] += np.random.uniform(-1, 1)  # Small change to C
+        individual[1] += np.random.uniform(-0.1, 0.1)  # Small change to gamma
+        individual[0] = max(0.1, individual[0])  # Ensure valid C
+        individual[1] = max(0.01, individual[1])  # Ensure valid gamma
+    return individual
+
+# Run Genetic Algorithm
+population = initialize_population()
+
+for generation in range(generations):
+    # Evaluate fitness
+    fitness_scores = np.array([fitness_function(ind) for ind in population])
+    best_fitness = np.max(fitness_scores)
+    
+    # Fuzzy control for mutation rate
+    mutation_sim.input['fitness'] = best_fitness
+    mutation_sim.compute()
+    mutation_rate = mutation_sim.output['mutation_rate']
+    
+    # Select top individuals
+    selected = selection(population, fitness_scores)
+
+    # Generate new population via crossover and mutation
+    new_population = []
+    while len(new_population) < population_size:
+        parent1, parent2 = selected[np.random.choice(len(selected), 2, replace=False)]
+        child = crossover(parent1, parent2)
+        child = mutation(child, mutation_rate)
+        new_population.append(child)
+
+    population = np.array(new_population)
+
+# Evaluate final population
+final_fitness_scores = np.array([fitness_function(ind) for ind in population])
+best_individual = population[np.argmax(final_fitness_scores)]
+
+print("Best hyperparameters (C, gamma):", best_individual)
+print("Best accuracy:", np.max(final_fitness_scores))
